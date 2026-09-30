@@ -36,7 +36,13 @@ hr{border:0;border-top:1px solid #eaecf0;margin:16px 0}
 .notice{padding:9px;background:#fffaeb;border:1px solid #fedf89;border-radius:7px;font-size:13px;margin:8px 0}
 details{margin:8px 0} summary{cursor:pointer;font-weight:700}
 .empty{padding:20px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px}
-.pill{font-size:11px;padding:3px 6px;background:#eef2f6;border-radius:99px}.colour-swatch{width:34px;height:34px;border:1px solid var(--line);border-radius:7px;display:inline-block}
+.pill{font-size:11px;padding:3px 6px;background:#eef2f6;border-radius:99px}.colour-swatch{width:42px;height:42px;border:1px solid var(--line);border-radius:7px;display:inline-block;flex:0 0 42px}
+.settings-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end;margin-top:2px}
+.form-group{min-width:0}
+.form-group label{margin-top:12px}
+.colour-field{display:flex;gap:10px;align-items:center}
+.colour-field input{min-width:0}
+@media(max-width:620px){.settings-pair{grid-template-columns:1fr}}
 @media(max-width:1100px){.layout{grid-template-columns:280px 1fr}.previewcard{grid-column:1/-1}}
 @media(max-width:760px){.layout{grid-template-columns:1fr}.top{position:static}}
 </style>
@@ -145,7 +151,19 @@ function renderEditor(){
   const s=project.settings;e.innerHTML=`<h2>Bot settings</h2>
   ${field('Bot title',s.title,"setSetting('title',this.value)")}
   ${area('Welcome message',s.welcome,"setSetting('welcome',this.value)")}
-  <div class="row">${field('Start button',s.startLabel,"setSetting('startLabel',this.value)")}<div><label>Primary colour (HEX)</label><div class="row"><input type="text" value="${esc(s.primaryColour)}" placeholder="#b91e71" maxlength="7" oninput="setHexSetting(this,'primaryColour')"><span class="fit colour-swatch" style="background:${esc(s.primaryColour)}"></span></div></div></div>
+  <div class="settings-pair">
+  <div class="form-group">
+    <label>Start button</label>
+    <input type="text" value="${esc(s.startLabel)}" oninput="setSetting('startLabel',this.value)">
+  </div>
+  <div class="form-group">
+    <label>Primary colour <span class="muted">(HEX)</span></label>
+    <div class="colour-field">
+      <input type="text" value="${esc(s.primaryColour)}" placeholder="#b91e71" maxlength="7" oninput="setHexSetting(this,'primaryColour')">
+      <span class="colour-swatch" style="background:${esc(s.primaryColour)}" aria-hidden="true"></span>
+    </div>
+  </div>
+</div>
   <hr><strong>Behaviour</strong>
   ${check('Collect user details before starting',s.collectDetails,"setSetting('collectDetails',this.checked)")}
   ${check('Record responses during the session',s.recordResponses,"setSetting('recordResponses',this.checked)")}
