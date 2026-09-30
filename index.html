@@ -32,6 +32,12 @@ hr{border:0;border-top:1px solid #eaecf0;margin:16px 0}
 .progress{height:8px;background:#e9ecef;border-radius:20px;overflow:hidden;margin:8px 0 14px}.progress>div{height:100%;background:var(--brand);width:0}
 .sectionhead{padding:9px;border-radius:7px;color:#fff;font-weight:700;margin-bottom:10px;background:var(--brand)}
 .msg{padding:10px 12px;border-radius:8px;margin:8px 0;line-height:1.45}.bot{background:#fce8f2}.user{background:#e9ecef;margin-left:28%;text-align:right}
+.typing{display:flex;align-items:center;gap:5px;width:max-content;min-width:54px}
+.typing-dot{width:7px;height:7px;border-radius:50%;background:#667085;animation:typingBounce 1s infinite ease-in-out}
+.typing-dot:nth-child(2){animation-delay:.15s}
+.typing-dot:nth-child(3){animation-delay:.3s}
+@keyframes typingBounce{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-4px);opacity:1}}
+
 .preview-buttons{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.preview-buttons button,.linkbtn{border:0;border-radius:6px;padding:8px 11px;background:var(--brand);color:#fff;text-decoration:none;display:inline-block}
 .notice{padding:9px;background:#fffaeb;border:1px solid #fedf89;border-radius:7px;font-size:13px;margin:8px 0}
 details{margin:8px 0} summary{cursor:pointer;font-weight:700}
@@ -270,6 +276,12 @@ function removeAction(ri,ai){project.questions[selectedQuestion].responses[ri].a
 function moveAction(ri,ai,d){const a=project.questions[selectedQuestion].responses[ri].actions,j=ai+d;if(j<0||j>=a.length)return;[a[ai],a[j]]=[a[j],a[ai]];renderEditor();renderPreview()}
 
 function resetPreview(){previewIndex=-1;previewAnswers=[];previewDetails={};renderPreview()}
+function previewTyping(){
+ const p=$('#preview'),id='previewTyping-'+Date.now();
+ p.insertAdjacentHTML('beforeend',`<div id="${id}" class="msg bot typing" role="status" aria-label="Typing"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>`);
+ return new Promise(resolve=>setTimeout(()=>{document.getElementById(id)?.remove();resolve()},650));
+}
+
 function renderPreview(){
  const p=$('#preview'),s=project.settings;p.innerHTML='';document.documentElement.style.setProperty('--brand',s.primaryColour||'#b91e71');
  if(previewIndex===-1){
@@ -291,12 +303,16 @@ function startPreview(){
 }
 function submitPreviewText(req){const t=$('#previewText').value.trim();if(req&&!t)return alert('Please enter a response.');if(project.settings.recordResponses)previewAnswers.push({question:project.questions[previewIndex].text,answer:t});previewIndex++;renderPreview()}
 async function choosePreview(ri){
- const q=project.questions[previewIndex],r=q.responses[ri];if(project.settings.recordResponses)previewAnswers.push({question:q.text,answer:r.label});await runPreviewActions(r.actions||[],0)
+ const q=project.questions[previewIndex],r=q.responses[ri];
+ $('#preview').querySelectorAll('.preview-buttons button').forEach(button=>button.disabled=true);
+ $('#preview').insertAdjacentHTML('beforeend',`<div class="msg user">${esc(r.label)}</div>`);
+ if(project.settings.recordResponses)previewAnswers.push({question:q.text,answer:r.label});
+ await runPreviewActions(r.actions||[],0)
 }
 async function runPreviewActions(actions,pos){
  const p=$('#preview');if(pos>=actions.length)return;
  const a=actions[pos];
- if(a.type==='message'){p.insertAdjacentHTML('beforeend',`<div class="msg user">${esc(project.questions[previewIndex].responses.find(r=>r.actions===actions)?.label||'')}</div><div class="msg bot">${a.text||''}</div>`);return runPreviewActions(actions,pos+1)}
+ if(a.type==='message'){await previewTyping();p.insertAdjacentHTML('beforeend',`<div class="msg bot">${a.text||''}</div>`);return runPreviewActions(actions,pos+1)}
  if(a.type==='link'){p.insertAdjacentHTML('beforeend',`<p><a class="linkbtn" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.label||'Open link')}</a></p>`);return runPreviewActions(actions,pos+1)}
  if(a.type==='text'){p.insertAdjacentHTML('beforeend',`<label>${esc(a.prompt||'Type here...')}</label><textarea id="actionText"></textarea><div class="preview-buttons"><button id="actionContinue">Continue</button></div>`);$('#actionContinue').onclick=()=>{const v=$('#actionText').value.trim();if(a.required&&!v)return alert('Please enter a response.');if(project.settings.recordResponses)previewAnswers.push({question:a.prompt,answer:v});runPreviewActions(actions,pos+1)};return}
  if(a.type==='jump'){const j=project.questions.findIndex(q=>q.id===a.target);previewIndex=j>=0?j:previewIndex+1;return renderPreview()}
@@ -368,6 +384,44 @@ body {
   margin: 9px 0;
   line-height: 1.45;
   font-size:18px;
+}
+
+.guided-conversation-app .typing {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  min-width: 54px;
+}
+
+.guided-conversation-app .typing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #667085;
+  animation: guidedTypingBounce 1s infinite ease-in-out;
+}
+
+.guided-conversation-app .typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.guided-conversation-app .typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes guidedTypingBounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
 }
 
 .guided-conversation-app .bot {
@@ -519,6 +573,26 @@ body {
     }
   }
 
+  function showTyping() {
+    const typing = document.createElement('div');
+    typing.className = 'msg bot typing';
+    typing.setAttribute('role', 'status');
+    typing.setAttribute('aria-label', 'Typing');
+    typing.innerHTML =
+      '<span class="typing-dot"></span>' +
+      '<span class="typing-dot"></span>' +
+      '<span class="typing-dot"></span>';
+
+    app.appendChild(typing);
+
+    return new Promise(resolve => {
+      setTimeout(() => {
+        typing.remove();
+        resolve();
+      }, 650);
+    });
+  }
+
   function start() {
     if (project.settings.collectDetails) {
       let valid = true;
@@ -561,7 +635,7 @@ body {
     render();
   }
 
-  function choose(responseIndex) {
+  async function choose(responseIndex) {
     const question = project.questions[idx];
     const response = question.responses[responseIndex];
 
@@ -582,10 +656,10 @@ body {
       });
     }
 
-    runActions(response.actions || [], 0);
+    await runActions(response.actions || [], 0);
   }
 
-  function runActions(actions, position) {
+  async function runActions(actions, position) {
     if (position >= actions.length) {
       return;
     }
@@ -593,12 +667,14 @@ body {
     const action = actions[position];
 
     if (action.type === 'message') {
+      await showTyping();
+
       app.innerHTML +=
         '<div class="msg bot">' +
         action.text +
         '</div>';
 
-      runActions(actions, position + 1);
+      await runActions(actions, position + 1);
       return;
     }
 
@@ -610,7 +686,7 @@ body {
         esc(action.label || 'Open link') +
         '</a>';
 
-      runActions(actions, position + 1);
+      await runActions(actions, position + 1);
       return;
     }
 
@@ -622,7 +698,7 @@ body {
         '<textarea id="guidedConversationFollowUp"></textarea>' +
         '<button id="guidedConversationFollowUpButton">Continue</button>';
 
-      document.getElementById('guidedConversationFollowUpButton').onclick = () => {
+      document.getElementById('guidedConversationFollowUpButton').onclick = async () => {
         const value = document
           .getElementById('guidedConversationFollowUp')
           .value
@@ -640,7 +716,7 @@ body {
           });
         }
 
-        runActions(actions, position + 1);
+        await runActions(actions, position + 1);
       };
 
       return;
