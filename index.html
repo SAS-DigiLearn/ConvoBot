@@ -350,6 +350,11 @@ body {
   display: inline-block;
 }
 
+.guided-conversation-app button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .guided-conversation-app input,
 .guided-conversation-app textarea {
   width: 100%;
@@ -504,7 +509,7 @@ body {
         ')">Continue</button>';
     } else {
       app.innerHTML += (question.responses || []).map((response, i) =>
-        '<button onclick="window.guidedConversationChoose(' + i + ')">' +
+        '<button class="guided-response-button" onclick="window.guidedConversationChoose(' + i + ')">' +
         esc(response.label) +
         '</button>'
       ).join('');
@@ -556,6 +561,11 @@ body {
   function choose(responseIndex) {
     const question = project.questions[idx];
     const response = question.responses[responseIndex];
+
+    const responseButtons = app.querySelectorAll('.guided-response-button');
+    responseButtons.forEach(button => {
+      button.disabled = true;
+    });
 
     app.innerHTML +=
       '<div class="msg user">' +
