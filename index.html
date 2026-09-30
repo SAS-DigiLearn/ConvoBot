@@ -408,6 +408,63 @@ body {
   border-top: 1px solid #dddddd;
   padding: 9px 0;
 }
+
+.guided-print-report {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .guided-print-report,
+  .guided-print-report * {
+    visibility: visible !important;
+  }
+
+  .guided-print-report {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 24px;
+    background: #ffffff;
+    color: #000000;
+    font-family: Arial, sans-serif;
+  }
+
+  .guided-print-report h1 {
+    font-size: 22pt;
+    margin: 0 0 8px;
+  }
+
+  .guided-print-report h2 {
+    font-size: 14pt;
+    margin: 22px 0 8px;
+  }
+
+  .guided-print-report .print-meta {
+    margin-bottom: 18px;
+    color: #444444;
+  }
+
+  .guided-print-report .print-detail,
+  .guided-print-report .print-answer {
+    margin: 0 0 12px;
+    page-break-inside: avoid;
+  }
+
+  .guided-print-report .print-question {
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  .guided-print-report .print-response {
+    margin-left: 14px;
+  }
+}
 </style>
 
 <div class="guided-conversation-app" id="guidedConversationApp"></div>
@@ -705,7 +762,7 @@ body {
       app.innerHTML +=
         '<button id="guidedConversationPdfButton" ' +
         'onclick="window.guidedConversationDownloadPDF()">' +
-        'Open my answers as PDF' +
+        'Save my answers as PDF' +
         '</button>';
     }
 
@@ -715,356 +772,126 @@ body {
       '</button>';
   }
 
-  function pdfText(value) {
+  function reportText(value) {
     const element = document.createElement('div');
     element.innerHTML = String(value || '');
 
     return (element.textContent || '')
-      .replace(/\\s+/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
   }
 
-  function pdfSafe(value) {
-    return String(value || 'guided-conversation')
-      .replace(/[^a-z0-9 _-]/gi, '')
-      .trim()
-      .replace(/\\s+/g, '-')
-      .toLowerCase() || 'guided-conversation';
-  }
-
-  function pdfEscape(value) {
-    return String(value || '')
-      .replace(/\\\\/g, '\\\\\\\\')
-      .replace(/\\(/g, '\\\\(')
-      .replace(/\\)/g, '\\\\)')
-      .replace(/[^\\x20-\\x7E]/g, char => {
-        const replacements = {
-          '’': "'",
-          '‘': "'",
-          '“': '"',
-          '”': '"',
-          '–': '-',
-          '—': '-',
-          '…': '...',
-          '£': 'GBP '
-        };
-
-        return replacements[char] || '?';
-      });
-  }
-
-  function wrapPdfText(value, maxChars) {
-    const text = pdfText(value);
-    const words = text.split(/\\s+/);
-    const lines = [];
-    let line = '';
-
-    words.forEach(word => {
-      if (!line) {
-        line = word;
-        return;
-      }
-
-      if ((line + ' ' + word).length <= maxChars) {
-        line += ' ' + word;
-      } else {
-        lines.push(line);
-        line = word;
-      }
-    });
-
-    if (line) {
-      lines.push(line);
-    }
-
-    return lines.length ? lines : [''];
-  }
-
-  function makeSimplePdf(title, details, answers) {
-    const pages = [];
-    let commands = [];
-    let y = 800;
-
-    function startPage() {
-      commands = [
-        'BT',
-        '/F1 11 Tf',
-        '0 g'
-      ];
-      y = 800;
-    }
-
-    function finishPage() {
-      commands.push('ET');
-      pages.push(commands.join('\\n'));
-    }
-
-    function ensureSpace(height) {
-      if (y - height < 45) {
-        finishPage();
-        startPage();
-      }
-    }
-
-    function addLine(
-      value,
-      size = 11,
-      bold = false,
-      indent = 0,
-      gap = 15
-    ) {
-      ensureSpace(gap + 4);
-
-      commands.push(
-        '/' + (bold ? 'F2' : 'F1') + ' ' + size + ' Tf'
-      );
-
-      commands.push(
-        '1 0 0 1 ' +
-        (45 + indent) +
-        ' ' +
-        y +
-        ' Tm (' +
-        pdfEscape(value) +
-        ') Tj'
-      );
-
-      y -= gap;
-    }
-
-    function addWrapped(
-      value,
-      size = 11,
-      bold = false,
-      indent = 0,
-      maxChars = 82
-    ) {
-      wrapPdfText(value, maxChars).forEach(line => {
-        addLine(
-          line,
-          size,
-          bold,
-          indent,
-          size + 4
-        );
-      });
-    }
-
-    startPage();
-
-    addWrapped(title, 18, true, 0, 55);
-    y -= 3;
-
-    addLine(
-      'Completed: ' +
-      new Date().toLocaleString('en-GB'),
-      9,
-      false,
-      0,
-      18
-    );
-
-    const detailEntries = Object.entries(details).filter(
-      ([, value]) => String(value || '').trim()
-    );
-
-    if (detailEntries.length) {
-      addLine('Your details', 13, true, 0, 18);
-
-      detailEntries.forEach(([label, value]) => {
-        addWrapped(
-          label + ': ' + value,
-          10,
-          false,
-          0,
-          88
-        );
-      });
-
-      y -= 5;
-    }
-
-    addLine('Your responses', 13, true, 0, 20);
-
-    answers.forEach((answer, index) => {
-      addWrapped(
-        (index + 1) + '. ' + pdfText(answer.question),
-        11,
-        true,
-        0,
-        78
-      );
-
-      addWrapped(
-        'Answer: ' + pdfText(answer.answer),
-        10,
-        false,
-        12,
-        82
-      );
-
-      y -= 7;
-    });
-
-    finishPage();
-
-    const objects = [];
-    const pageObjectNumbers = [];
-    const contentObjectNumbers = [];
-
-    objects[1] =
-      '<< /Type /Catalog /Pages 2 0 R >>';
-
-    objects[3] =
-      '<< /Type /Font /Subtype /Type1 ' +
-      '/BaseFont /Helvetica >>';
-
-    objects[4] =
-      '<< /Type /Font /Subtype /Type1 ' +
-      '/BaseFont /Helvetica-Bold >>';
-
-    let nextObject = 5;
-
-    pages.forEach(pageContent => {
-      const pageObject = nextObject++;
-      const contentObject = nextObject++;
-
-      pageObjectNumbers.push(pageObject);
-      contentObjectNumbers.push(contentObject);
-
-      objects[pageObject] =
-        '<< /Type /Page /Parent 2 0 R ' +
-        '/MediaBox [0 0 595 842] ' +
-        '/Resources << /Font << ' +
-        '/F1 3 0 R /F2 4 0 R >> >> ' +
-        '/Contents ' +
-        contentObject +
-        ' 0 R >>';
-
-      objects[contentObject] =
-        '<< /Length ' +
-        pageContent.length +
-        ' >>\\nstream\\n' +
-        pageContent +
-        '\\nendstream';
-    });
-
-    objects[2] =
-      '<< /Type /Pages /Kids [' +
-      pageObjectNumbers
-        .map(number => number + ' 0 R')
-        .join(' ') +
-      '] /Count ' +
-      pageObjectNumbers.length +
-      ' >>';
-
-    let pdf = '%PDF-1.4\\n';
-    const offsets = [0];
-
-    for (let i = 1; i < objects.length; i++) {
-      if (!objects[i]) {
-        continue;
-      }
-
-      offsets[i] = pdf.length;
-
-      pdf +=
-        i +
-        ' 0 obj\\n' +
-        objects[i] +
-        '\\nendobj\\n';
-    }
-
-    const xrefOffset = pdf.length;
-
-    pdf +=
-      'xref\\n0 ' +
-      objects.length +
-      '\\n';
-
-    pdf += '0000000000 65535 f \\n';
-
-    for (let i = 1; i < objects.length; i++) {
-      const offset = offsets[i] || 0;
-
-      pdf +=
-        String(offset).padStart(10, '0') +
-        ' 00000 n \\n';
-    }
-
-    pdf +=
-      'trailer\\n<< /Size ' +
-      objects.length +
-      ' /Root 1 0 R >>\\n' +
-      'startxref\\n' +
-      xrefOffset +
-      '\\n%%EOF';
-
-    return new Blob(
-      [pdf],
-      {
-        type: 'application/pdf'
-      }
-    );
-  }
-
-  function downloadPDF() {
+  function saveAnswersAsPdf() {
     const button = document.getElementById(
       'guidedConversationPdfButton'
     );
 
     const originalLabel = button
       ? button.textContent
-      : 'Open my answers as PDF';
+      : 'Save my answers as PDF';
 
     if (button) {
       button.disabled = true;
-      button.textContent = 'Preparing PDF...';
+      button.textContent = 'Preparing report...';
     }
 
-    const pdfWindow = window.open('', '_blank');
-
     try {
-      const blob = makeSimplePdf(
-        pdfText(
-          project.settings.title ||
-          'Guided conversation'
-        ),
-        details,
-        answers
+      const oldReport = document.getElementById(
+        'guidedConversationPrintReport'
       );
 
-      const url = URL.createObjectURL(blob);
+      if (oldReport) {
+        oldReport.remove();
+      }
 
-      if (pdfWindow) {
-        pdfWindow.location.href = url;
+      const report = document.createElement('section');
+      report.id = 'guidedConversationPrintReport';
+      report.className = 'guided-print-report';
 
-        setTimeout(() => {
-          URL.revokeObjectURL(url);
-        }, 60000);
+      const title = document.createElement('h1');
+      title.textContent = reportText(
+        project.settings.title ||
+        'Guided conversation'
+      );
+      report.appendChild(title);
+
+      const meta = document.createElement('div');
+      meta.className = 'print-meta';
+      meta.textContent =
+        'Completed: ' +
+        new Date().toLocaleString('en-GB');
+      report.appendChild(meta);
+
+      const detailEntries = Object.entries(details).filter(
+        ([, value]) => String(value || '').trim()
+      );
+
+      if (detailEntries.length) {
+        const detailsHeading = document.createElement('h2');
+        detailsHeading.textContent = 'Your details';
+        report.appendChild(detailsHeading);
+
+        detailEntries.forEach(([label, value]) => {
+          const row = document.createElement('div');
+          row.className = 'print-detail';
+
+          const strong = document.createElement('strong');
+          strong.textContent = label + ': ';
+          row.appendChild(strong);
+
+          row.appendChild(
+            document.createTextNode(
+              reportText(value)
+            )
+          );
+
+          report.appendChild(row);
+        });
+      }
+
+      const answersHeading = document.createElement('h2');
+      answersHeading.textContent = 'Your responses';
+      report.appendChild(answersHeading);
+
+      answers.forEach((answer, index) => {
+        const item = document.createElement('div');
+        item.className = 'print-answer';
+
+        const question = document.createElement('div');
+        question.className = 'print-question';
+        question.textContent =
+          (index + 1) +
+          '. ' +
+          reportText(answer.question);
+
+        const response = document.createElement('div');
+        response.className = 'print-response';
+        response.textContent =
+          'Answer: ' +
+          reportText(answer.answer);
+
+        item.appendChild(question);
+        item.appendChild(response);
+        report.appendChild(item);
+      });
+
+      document.body.appendChild(report);
+
+      if (button) {
+        button.textContent = 'Opening print dialog...';
+      }
+
+      setTimeout(() => {
+        window.print();
 
         if (button) {
-          button.textContent = 'PDF opened';
-
-          setTimeout(() => {
-            button.textContent = originalLabel;
-            button.disabled = false;
-          }, 1800);
+          button.textContent = originalLabel;
+          button.disabled = false;
         }
-      } else {
-        URL.revokeObjectURL(url);
-
-        throw new Error(
-          'The browser blocked the PDF window.'
-        );
-      }
+      }, 100);
     } catch (error) {
-      if (pdfWindow && !pdfWindow.closed) {
-        pdfWindow.close();
-      }
-
       console.error(
-        'PDF generation failed:',
+        'Printable report failed:',
         error
       );
 
@@ -1074,7 +901,7 @@ body {
       }
 
       alert(
-        'The PDF could not be opened. Please allow pop-ups for this course and try again.'
+        'The printable report could not be opened in this browser.'
       );
     }
   }
@@ -1089,7 +916,7 @@ body {
   window.guidedConversationStart = start;
   window.guidedConversationTextNext = textNext;
   window.guidedConversationChoose = choose;
-  window.guidedConversationDownloadPDF = downloadPDF;
+  window.guidedConversationDownloadPDF = saveAnswersAsPdf;
   window.guidedConversationRestart = restart;
 
   render();
