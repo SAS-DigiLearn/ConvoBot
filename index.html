@@ -313,9 +313,7 @@ function renderComplete(){const p=$('#preview'),s=project.settings;p.innerHTML=`
 function buildBotCode() {
   const data = JSON.stringify(project).replace(/</g, '\\u003c');
 
-  return `<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"><\/script>
-
-<style>
+  return `<style>
 :root {
   --brand: ${esc(project.settings.primaryColour)};
 }
@@ -705,7 +703,8 @@ body {
       answers.length
     ) {
       app.innerHTML +=
-        '<button onclick="window.guidedConversationDownloadPDF()">' +
+        '<button id="guidedConversationPdfButton" ' +
+        'onclick="window.guidedConversationDownloadPDF()">' +
         'Download my answers as PDF' +
         '</button>';
     }
@@ -730,136 +729,268 @@ body {
       .toLowerCase() || 'guided-conversation';
   }
 
-  function downloadPDF() {
-    if (!window.jspdf) {
-      alert(
-        'The PDF library could not be loaded. ' +
-        'Please check your internet connection and try again.'
-      );
-      return;
+  function loadJsPDF() {
+    if (window.jspdf && window.jspdf.jsPDF) {
+      return Promise.resolve(window.jspdf);
     }
 
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ compress: true });
+    return new Promise((resolve, reject) => {
+      const existing = document.getElementById(
+        'guidedConversationJsPdfLibrary'
+      );
 
-    const margin = 18;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const maxWidth = pageWidth - (margin * 2);
+      if (existing) {
+        existing.addEventListener('load', () => {
+          if (window.jspdf && window.jspdf.jsPDF) {
+            resolve(window.jspdf);
+          } else {
+            reject(new Error('jsPDF loaded but was not available.'));
+          }
+        }, { once: true });
 
-    let y = 22;
+        existing.addEventListener('error', () => {
+          reject(new Error('The PDF library could not be loaded.'));
+        }, { once: true });
 
-    function ensureSpace(height = 12) {
-      if (y + height > pageHeight - 18) {
-        doc.addPage();
-        y = 22;
+        return;
       }
-    }
 
-    function addText(text, size = 11, bold = false, indent = 0) {
-      doc.setFont('helvetica', bold ? 'bold' : 'normal');
-      doc.setFontSize(size);
-      doc.setTextColor(0, 0, 0);
+      const script = document.createElement('script');
+      script.id = 'guidedConversationJsPdfLibrary';
+      script.src =
+        'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/' +
+        'jspdf.umd.min.js';
+      script.async = true;
 
-      const lines = doc.splitTextToSize(
-        String(text || ''),
-        maxWidth - indent
-      );
+      script.onload = () => {
+        if (window.jspdf && window.jspdf.jsPDF) {
+          resolve(window.jspdf);
+        } else {
+          reject(new Error('jsPDF loaded but was not available.'));
+        }
+      };
 
-      lines.forEach(line => {
-        ensureSpace(7);
-        doc.text(line, margin + indent, y);
-        y += 6;
-      });
-    }
+      script.onerror = () => {
+        reject(new Error('The PDF library could not be loaded.'));
+      };
 
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.setTextColor(185, 30, 113);
-    doc.text(
-      pdfText(project.settings.title || 'Guided conversation'),
-      margin,
-      y
-    );
-
-    y += 9;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(90, 90, 90);
-    doc.text(
-      'Completed: ' + new Date().toLocaleString(),
-      margin,
-      y
-    );
-
-    y += 10;
-
-    const detailEntries = Object.entries(details).filter(
-      ([, value]) => String(value || '').trim()
-    );
-
-    if (detailEntries.length) {
-      addText('Your details', 13, true);
-      y += 2;
-
-      detailEntries.forEach(([label, value]) => {
-        addText(label + ': ' + value, 10);
-      });
-
-      y += 5;
-    }
-
-    addText('Your responses', 13, true);
-    y += 3;
-
-    answers.forEach((answer, i) => {
-      ensureSpace(22);
-
-      addText(
-        (i + 1) + '. ' + pdfText(answer.question),
-        11,
-        true
-      );
-
-      y += 1;
-
-      addText(
-        'Answer: ' + pdfText(answer.answer),
-        10,
-        false,
-        4
-      );
-
-      y += 5;
+      document.head.appendChild(script);
     });
+  }
 
-    const pageCount = doc.internal.getNumberOfPages();
+  async function downloadPDF() {
+    const button = document.getElementById(
+      'guidedConversationPdfButton'
+    );
 
-    for (let page = 1; page <= pageCount; page++) {
-      doc.setPage(page);
-      doc.setFontSize(8);
-      doc.setTextColor(120, 120, 120);
+    const originalLabel = button
+      ? button.textContent
+      : 'Download my answers as PDF';
 
-      doc.text(
-        'Generated from ' +
-        pdfText(project.settings.title || 'Guided conversation'),
-        margin,
-        pageHeight - 8
-      );
-
-      doc.text(
-        'Page ' + page + ' of ' + pageCount,
-        pageWidth - margin,
-        pageHeight - 8,
-        { align: 'right' }
-      );
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Preparing PDF...';
     }
 
-    doc.save(
-      pdfSafe(project.settings.title) +
-      '-responses.pdf'
-    );
+    try {
+      const jspdfLibrary = await loadJsPDF();
+      const { jsPDF } = jspdfLibrary;
+
+      const doc = new jsPDF({
+        compress: true
+      });
+
+      const margin = 18;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const maxWidth = pageWidth - (margin * 2);
+
+      let y = 22;
+
+      function ensureSpace(height = 12) {
+        if (y + height > pageHeight - 18) {
+          doc.addPage();
+          y = 22;
+        }
+      }
+
+      function addText(
+        text,
+        size = 11,
+        bold = false,
+        indent = 0
+      ) {
+        doc.setFont(
+          'helvetica',
+          bold ? 'bold' : 'normal'
+        );
+
+        doc.setFontSize(size);
+        doc.setTextColor(0, 0, 0);
+
+        const lines = doc.splitTextToSize(
+          String(text || ''),
+          maxWidth - indent
+        );
+
+        lines.forEach(line => {
+          ensureSpace(7);
+          doc.text(line, margin + indent, y);
+          y += 6;
+        });
+      }
+
+      doc.setProperties({
+        title:
+          pdfText(
+            project.settings.title ||
+            'Guided conversation'
+          ) + ' - responses',
+        author:
+          project.settings.title ||
+          'Guided conversation'
+      });
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(185, 30, 113);
+
+      doc.text(
+        pdfText(
+          project.settings.title ||
+          'Guided conversation'
+        ),
+        margin,
+        y
+      );
+
+      y += 9;
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.setTextColor(90, 90, 90);
+
+      doc.text(
+        'Completed: ' +
+        new Date().toLocaleString('en-GB'),
+        margin,
+        y
+      );
+
+      y += 10;
+
+      const detailEntries = Object.entries(details).filter(
+        ([, value]) => String(value || '').trim()
+      );
+
+      if (detailEntries.length) {
+        addText('Your details', 13, true);
+        y += 2;
+
+        detailEntries.forEach(([label, value]) => {
+          addText(
+            label + ': ' + value,
+            10
+          );
+        });
+
+        y += 5;
+      }
+
+      addText('Your responses', 13, true);
+      y += 3;
+
+      answers.forEach((answer, i) => {
+        ensureSpace(22);
+
+        addText(
+          (i + 1) +
+          '. ' +
+          pdfText(answer.question),
+          11,
+          true
+        );
+
+        y += 1;
+
+        addText(
+          'Answer: ' +
+          pdfText(answer.answer),
+          10,
+          false,
+          4
+        );
+
+        y += 5;
+      });
+
+      const pageCount =
+        doc.internal.getNumberOfPages();
+
+      for (
+        let page = 1;
+        page <= pageCount;
+        page++
+      ) {
+        doc.setPage(page);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(120, 120, 120);
+
+        doc.text(
+          'Generated from ' +
+          pdfText(
+            project.settings.title ||
+            'Guided conversation'
+          ),
+          margin,
+          pageHeight - 8
+        );
+
+        doc.text(
+          'Page ' +
+          page +
+          ' of ' +
+          pageCount,
+          pageWidth - margin,
+          pageHeight - 8,
+          {
+            align: 'right'
+          }
+        );
+      }
+
+      doc.save(
+        pdfSafe(project.settings.title) +
+        '-responses.pdf'
+      );
+
+      if (button) {
+        button.textContent = 'PDF downloaded';
+
+        setTimeout(() => {
+          button.textContent = originalLabel;
+          button.disabled = false;
+        }, 1800);
+      }
+    } catch (error) {
+      console.error(
+        'PDF generation failed:',
+        error
+      );
+
+      if (button) {
+        button.textContent = originalLabel;
+        button.disabled = false;
+      }
+
+      alert(
+        'The PDF could not be created. ' +
+        'The PDF library may be blocked in this ' +
+        'Rise code block. Please try again or ' +
+        'contact the course author.'
+      );
+    }
   }
 
   function restart() {
