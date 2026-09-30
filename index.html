@@ -36,7 +36,7 @@ hr{border:0;border-top:1px solid #eaecf0;margin:16px 0}
 .notice{padding:9px;background:#fffaeb;border:1px solid #fedf89;border-radius:7px;font-size:13px;margin:8px 0}
 details{margin:8px 0} summary{cursor:pointer;font-weight:700}
 .empty{padding:20px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px}
-.pill{font-size:11px;padding:3px 6px;background:#eef2f6;border-radius:99px}
+.pill{font-size:11px;padding:3px 6px;background:#eef2f6;border-radius:99px}.colour-swatch{width:34px;height:34px;border:1px solid var(--line);border-radius:7px;display:inline-block}
 @media(max-width:1100px){.layout{grid-template-columns:280px 1fr}.previewcard{grid-column:1/-1}}
 @media(max-width:760px){.layout{grid-template-columns:1fr}.top{position:static}}
 </style>
@@ -48,7 +48,9 @@ details{margin:8px 0} summary{cursor:pointer;font-weight:700}
 <button class="btn secondary" onclick="loadStarter('wellbeing')">Wellbeing example</button>
 <button class="btn secondary" onclick="loadStarter('dse')">DSE example</button>
 <button class="btn secondary" onclick="saveProject()">Save project</button>
-<label class="btn secondary" style="margin:0;font-weight:400">Load project<input id="loadFile" type="file" accept=".json" hidden></label>
+<button class="btn secondary" type="button" onclick="document.getElementById('loadFile').click()">Load project</button>
+<input id="loadFile" type="file" accept=".json,application/json" style="display:none">
+<span id="projectStatus" class="muted" role="status" aria-live="polite"></span>
 <button class="btn" onclick="exportBot()">Export bot HTML</button>
 </div></header>
 
@@ -91,7 +93,33 @@ function newProject(){
 }
 function loadStarter(which){if(!confirm('Load this example? Unsaved changes will be lost.'))return;project=structuredClone(STARTERS[which]);selectedQuestion=0;selectPanel('settings');renderAll();resetPreview()}
 function saveProject(){dl(safeName(project.settings.title)+'.json',JSON.stringify(project,null,2),'application/json')}
-$('#loadFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const p=JSON.parse(await f.text());if(!p.settings||!Array.isArray(p.questions))throw Error();project=p;selectedQuestion=0;selectPanel('settings');renderAll();resetPreview()}catch{alert('That file does not look like a Guided Conversation Builder project.')}e.target.value=''})
+document.getElementById('loadFile').addEventListener('change', async e=>{
+ const f=e.target.files && e.target.files[0];
+ const status=document.getElementById('projectStatus');
+ if(!f)return;
+ try{
+   const loaded=JSON.parse(await f.text());
+   if(!loaded || typeof loaded!=='object' || !loaded.settings || !Array.isArray(loaded.questions)){
+     throw new Error('Missing project settings or questions.');
+   }
+   loaded.details=Array.isArray(loaded.details)?loaded.details:[];
+   loaded.sections=Array.isArray(loaded.sections)&&loaded.sections.length?loaded.sections:[{id:uid(),name:'General',colour:loaded.settings.primaryColour||'#b91e71'}];
+   loaded.settings.primaryColour=normaliseHex(loaded.settings.primaryColour)||'#b91e71';
+   project=loaded;
+   selectedQuestion=0;
+   selectedPanel='settings';
+   renderAll();
+   resetPreview();
+   selectPanel('settings');
+   status.textContent='Loaded: '+f.name;
+ }catch(err){
+   console.error(err);
+   status.textContent='Project could not be loaded.';
+   alert('That file could not be loaded as a Guided Conversation Builder project.\n\n'+(err.message||'Invalid JSON file.'));
+ }finally{
+   e.target.value='';
+ }
+});
 
 function selectPanel(name,el){
  selectedPanel=name;
@@ -117,7 +145,7 @@ function renderEditor(){
   const s=project.settings;e.innerHTML=`<h2>Bot settings</h2>
   ${field('Bot title',s.title,"setSetting('title',this.value)")}
   ${area('Welcome message',s.welcome,"setSetting('welcome',this.value)")}
-  <div class="row">${field('Start button',s.startLabel,"setSetting('startLabel',this.value)")}${field('Primary colour',s.primaryColour,"setSetting('primaryColour',this.value)",'color')}</div>
+  <div class="row">${field('Start button',s.startLabel,"setSetting('startLabel',this.value)")}<div><label>Primary colour (HEX)</label><div class="row"><input type="text" value="${esc(s.primaryColour)}" placeholder="#b91e71" maxlength="7" oninput="setHexSetting(this,'primaryColour')"><span class="fit colour-swatch" style="background:${esc(s.primaryColour)}"></span></div></div></div>
   <hr><strong>Behaviour</strong>
   ${check('Collect user details before starting',s.collectDetails,"setSetting('collectDetails',this.checked)")}
   ${check('Record responses during the session',s.recordResponses,"setSetting('recordResponses',this.checked)")}
@@ -134,9 +162,41 @@ function renderEditor(){
  } else {renderQuestionEditor()}
 }
 function setSetting(k,v){project.settings[k]=v;if(k==='primaryColour')document.documentElement.style.setProperty('--brand',v);renderPreview()}
+function normaliseHex(v){
+ v=String(v||'').trim();
+ if(!v)return '';
+ if(!v.startsWith('#'))v='#'+v;
+ if(/^#[0-9a-fA-F]{3}$/.test(v))v='#'+v.slice(1).split('').map(x=>x+x).join('');
+ return /^#[0-9a-fA-F]{6}$/.test(v)?v.toLowerCase():'';
+}
+function setHexSetting(el,key){
+ const hex=normaliseHex(el.value);
+ const swatch=el.parentElement.querySelector('.colour-swatch');
+ if(hex){
+   el.style.borderColor='';
+   project.settings[key]=hex;
+   if(swatch)swatch.style.background=hex;
+   document.documentElement.style.setProperty('--brand',hex);
+   renderPreview();
+ }else{
+   el.style.borderColor='#b42318';
+ }
+}
+function setSectionHex(i,el){
+ const hex=normaliseHex(el.value);
+ const swatch=el.parentElement.querySelector('.colour-swatch');
+ if(hex){
+   el.style.borderColor='';
+   project.sections[i].colour=hex;
+   if(swatch)swatch.style.background=hex;
+   renderPreview();
+ }else{
+   el.style.borderColor='#b42318';
+ }
+}
 function renderDetails(){const b=$('#detailsEdit');b.innerHTML='';project.details.forEach((d,i)=>{b.insertAdjacentHTML('beforeend',`<div class="response"><div class="row"><input type="text" value="${esc(d.label)}" oninput="project.details[${i}].label=this.value;renderPreview()"><label class="check fit"><input type="checkbox" ${d.required?'checked':''} onchange="project.details[${i}].required=this.checked"> Required</label><button class="btn danger small fit" onclick="project.details.splice(${i},1);renderEditor();renderPreview()">Delete</button></div></div>`)})}
 function addDetail(){project.details.push({label:'New field',required:false});renderEditor();renderPreview()}
-function renderSections(){const b=$('#sectionsEdit');b.innerHTML='';project.sections.forEach((s,i)=>{b.insertAdjacentHTML('beforeend',`<div class="response"><div class="row"><input type="text" value="${esc(s.name)}" oninput="renameSection(${i},this.value)"><input class="fit" type="color" value="${esc(s.colour||project.settings.primaryColour)}" onchange="project.sections[${i}].colour=this.value;renderPreview()"><button class="btn secondary small fit" onclick="moveSection(${i},-1)">↑</button><button class="btn secondary small fit" onclick="moveSection(${i},1)">↓</button><button class="btn danger small fit" onclick="deleteSection(${i})">Delete</button></div></div>`)})}
+function renderSections(){const b=$('#sectionsEdit');b.innerHTML='';project.sections.forEach((s,i)=>{b.insertAdjacentHTML('beforeend',`<div class="response"><div class="row"><input type="text" value="${esc(s.name)}" oninput="renameSection(${i},this.value)"><input type="text" value="${esc(s.colour||project.settings.primaryColour)}" placeholder="#b91e71" maxlength="7" oninput="setSectionHex(${i},this)"><span class="fit colour-swatch" style="background:${esc(s.colour||project.settings.primaryColour)}"></span><button class="btn secondary small fit" onclick="moveSection(${i},-1)">↑</button><button class="btn secondary small fit" onclick="moveSection(${i},1)">↓</button><button class="btn danger small fit" onclick="deleteSection(${i})">Delete</button></div></div>`)})}
 function addSection(){project.sections.push({id:uid(),name:'New section',colour:project.settings.primaryColour});renderEditor();renderQuestionList()}
 function renameSection(i,n){const old=project.sections[i].name;project.sections[i].name=n;project.questions.forEach(q=>{if(q.section===old)q.section=n});renderQuestionList();renderPreview()}
 function moveSection(i,d){const j=i+d;if(j<0||j>=project.sections.length)return;[project.sections[i],project.sections[j]]=[project.sections[j],project.sections[i]];renderEditor()}
