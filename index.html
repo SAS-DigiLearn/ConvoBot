@@ -718,7 +718,10 @@ body {
   function pdfText(value) {
     const element = document.createElement('div');
     element.innerHTML = String(value || '');
-    return (element.textContent || '').trim();
+
+    return (element.textContent || '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function pdfSafe(value) {
@@ -729,56 +732,283 @@ body {
       .toLowerCase() || 'guided-conversation';
   }
 
-  function loadJsPDF() {
-    if (window.jspdf && window.jspdf.jsPDF) {
-      return Promise.resolve(window.jspdf);
-    }
+  function pdfEscape(value) {
+    return String(value || '')
+      .replace(/\\/g, '\\\\')
+      .replace(/\(/g, '\\(')
+      .replace(/\)/g, '\\)')
+      .replace(/[^\x20-\x7E]/g, char => {
+        const replacements = {
+          '’': "'",
+          '‘': "'",
+          '“': '"',
+          '”': '"',
+          '–': '-',
+          '—': '-',
+          '…': '...',
+          '£': 'GBP '
+        };
 
-    return new Promise((resolve, reject) => {
-      const existing = document.getElementById(
-        'guidedConversationJsPdfLibrary'
-      );
+        return replacements[char] || '?';
+      });
+  }
 
-      if (existing) {
-        existing.addEventListener('load', () => {
-          if (window.jspdf && window.jspdf.jsPDF) {
-            resolve(window.jspdf);
-          } else {
-            reject(new Error('jsPDF loaded but was not available.'));
-          }
-        }, { once: true });
+  function wrapPdfText(value, maxChars) {
+    const text = pdfText(value);
+    const words = text.split(/\s+/);
+    const lines = [];
+    let line = '';
 
-        existing.addEventListener('error', () => {
-          reject(new Error('The PDF library could not be loaded.'));
-        }, { once: true });
-
+    words.forEach(word => {
+      if (!line) {
+        line = word;
         return;
       }
 
-      const script = document.createElement('script');
-      script.id = 'guidedConversationJsPdfLibrary';
-      script.src =
-        'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/' +
-        'jspdf.umd.min.js';
-      script.async = true;
-
-      script.onload = () => {
-        if (window.jspdf && window.jspdf.jsPDF) {
-          resolve(window.jspdf);
-        } else {
-          reject(new Error('jsPDF loaded but was not available.'));
-        }
-      };
-
-      script.onerror = () => {
-        reject(new Error('The PDF library could not be loaded.'));
-      };
-
-      document.head.appendChild(script);
+      if ((line + ' ' + word).length <= maxChars) {
+        line += ' ' + word;
+      } else {
+        lines.push(line);
+        line = word;
+      }
     });
+
+    if (line) {
+      lines.push(line);
+    }
+
+    return lines.length ? lines : [''];
   }
 
-  async function downloadPDF() {
+  function makeSimplePdf(title, details, answers) {
+    const pages = [];
+    let commands = [];
+    let y = 800;
+
+    function startPage() {
+      commands = [
+        'BT',
+        '/F1 11 Tf',
+        '0 g'
+      ];
+      y = 800;
+    }
+
+    function finishPage() {
+      commands.push('ET');
+      pages.push(commands.join('\n'));
+    }
+
+    function ensureSpace(height) {
+      if (y - height < 45) {
+        finishPage();
+        startPage();
+      }
+    }
+
+    function addLine(
+      value,
+      size = 11,
+      bold = false,
+      indent = 0,
+      gap = 15
+    ) {
+      ensureSpace(gap + 4);
+
+      commands.push(
+        '/' + (bold ? 'F2' : 'F1') + ' ' + size + ' Tf'
+      );
+
+      commands.push(
+        '1 0 0 1 ' +
+        (45 + indent) +
+        ' ' +
+        y +
+        ' Tm (' +
+        pdfEscape(value) +
+        ') Tj'
+      );
+
+      y -= gap;
+    }
+
+    function addWrapped(
+      value,
+      size = 11,
+      bold = false,
+      indent = 0,
+      maxChars = 82
+    ) {
+      wrapPdfText(value, maxChars).forEach(line => {
+        addLine(
+          line,
+          size,
+          bold,
+          indent,
+          size + 4
+        );
+      });
+    }
+
+    startPage();
+
+    addWrapped(title, 18, true, 0, 55);
+    y -= 3;
+
+    addLine(
+      'Completed: ' +
+      new Date().toLocaleString('en-GB'),
+      9,
+      false,
+      0,
+      18
+    );
+
+    const detailEntries = Object.entries(details).filter(
+      ([, value]) => String(value || '').trim()
+    );
+
+    if (detailEntries.length) {
+      addLine('Your details', 13, true, 0, 18);
+
+      detailEntries.forEach(([label, value]) => {
+        addWrapped(
+          label + ': ' + value,
+          10,
+          false,
+          0,
+          88
+        );
+      });
+
+      y -= 5;
+    }
+
+    addLine('Your responses', 13, true, 0, 20);
+
+    answers.forEach((answer, index) => {
+      addWrapped(
+        (index + 1) + '. ' + pdfText(answer.question),
+        11,
+        true,
+        0,
+        78
+      );
+
+      addWrapped(
+        'Answer: ' + pdfText(answer.answer),
+        10,
+        false,
+        12,
+        82
+      );
+
+      y -= 7;
+    });
+
+    finishPage();
+
+    const objects = [];
+    const pageObjectNumbers = [];
+    const contentObjectNumbers = [];
+
+    objects[1] =
+      '<< /Type /Catalog /Pages 2 0 R >>';
+
+    objects[3] =
+      '<< /Type /Font /Subtype /Type1 ' +
+      '/BaseFont /Helvetica >>';
+
+    objects[4] =
+      '<< /Type /Font /Subtype /Type1 ' +
+      '/BaseFont /Helvetica-Bold >>';
+
+    let nextObject = 5;
+
+    pages.forEach(pageContent => {
+      const pageObject = nextObject++;
+      const contentObject = nextObject++;
+
+      pageObjectNumbers.push(pageObject);
+      contentObjectNumbers.push(contentObject);
+
+      objects[pageObject] =
+        '<< /Type /Page /Parent 2 0 R ' +
+        '/MediaBox [0 0 595 842] ' +
+        '/Resources << /Font << ' +
+        '/F1 3 0 R /F2 4 0 R >> >> ' +
+        '/Contents ' +
+        contentObject +
+        ' 0 R >>';
+
+      objects[contentObject] =
+        '<< /Length ' +
+        pageContent.length +
+        ' >>\nstream\n' +
+        pageContent +
+        '\nendstream';
+    });
+
+    objects[2] =
+      '<< /Type /Pages /Kids [' +
+      pageObjectNumbers
+        .map(number => number + ' 0 R')
+        .join(' ') +
+      '] /Count ' +
+      pageObjectNumbers.length +
+      ' >>';
+
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+
+    for (let i = 1; i < objects.length; i++) {
+      if (!objects[i]) {
+        continue;
+      }
+
+      offsets[i] = pdf.length;
+
+      pdf +=
+        i +
+        ' 0 obj\n' +
+        objects[i] +
+        '\nendobj\n';
+    }
+
+    const xrefOffset = pdf.length;
+
+    pdf +=
+      'xref\n0 ' +
+      objects.length +
+      '\n';
+
+    pdf += '0000000000 65535 f \n';
+
+    for (let i = 1; i < objects.length; i++) {
+      const offset = offsets[i] || 0;
+
+      pdf +=
+        String(offset).padStart(10, '0') +
+        ' 00000 n \n';
+    }
+
+    pdf +=
+      'trailer\n<< /Size ' +
+      objects.length +
+      ' /Root 1 0 R >>\n' +
+      'startxref\n' +
+      xrefOffset +
+      '\n%%EOF';
+
+    return new Blob(
+      [pdf],
+      {
+        type: 'application/pdf'
+      }
+    );
+  }
+
+  function downloadPDF() {
     const button = document.getElementById(
       'guidedConversationPdfButton'
     );
@@ -793,177 +1023,31 @@ body {
     }
 
     try {
-      const jspdfLibrary = await loadJsPDF();
-      const { jsPDF } = jspdfLibrary;
-
-      const doc = new jsPDF({
-        compress: true
-      });
-
-      const margin = 18;
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const maxWidth = pageWidth - (margin * 2);
-
-      let y = 22;
-
-      function ensureSpace(height = 12) {
-        if (y + height > pageHeight - 18) {
-          doc.addPage();
-          y = 22;
-        }
-      }
-
-      function addText(
-        text,
-        size = 11,
-        bold = false,
-        indent = 0
-      ) {
-        doc.setFont(
-          'helvetica',
-          bold ? 'bold' : 'normal'
-        );
-
-        doc.setFontSize(size);
-        doc.setTextColor(0, 0, 0);
-
-        const lines = doc.splitTextToSize(
-          String(text || ''),
-          maxWidth - indent
-        );
-
-        lines.forEach(line => {
-          ensureSpace(7);
-          doc.text(line, margin + indent, y);
-          y += 6;
-        });
-      }
-
-      doc.setProperties({
-        title:
-          pdfText(
-            project.settings.title ||
-            'Guided conversation'
-          ) + ' - responses',
-        author:
-          project.settings.title ||
-          'Guided conversation'
-      });
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.setTextColor(185, 30, 113);
-
-      doc.text(
+      const blob = makeSimplePdf(
         pdfText(
           project.settings.title ||
           'Guided conversation'
         ),
-        margin,
-        y
+        details,
+        answers
       );
 
-      y += 9;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(90, 90, 90);
-
-      doc.text(
-        'Completed: ' +
-        new Date().toLocaleString('en-GB'),
-        margin,
-        y
-      );
-
-      y += 10;
-
-      const detailEntries = Object.entries(details).filter(
-        ([, value]) => String(value || '').trim()
-      );
-
-      if (detailEntries.length) {
-        addText('Your details', 13, true);
-        y += 2;
-
-        detailEntries.forEach(([label, value]) => {
-          addText(
-            label + ': ' + value,
-            10
-          );
-        });
-
-        y += 5;
-      }
-
-      addText('Your responses', 13, true);
-      y += 3;
-
-      answers.forEach((answer, i) => {
-        ensureSpace(22);
-
-        addText(
-          (i + 1) +
-          '. ' +
-          pdfText(answer.question),
-          11,
-          true
-        );
-
-        y += 1;
-
-        addText(
-          'Answer: ' +
-          pdfText(answer.answer),
-          10,
-          false,
-          4
-        );
-
-        y += 5;
-      });
-
-      const pageCount =
-        doc.internal.getNumberOfPages();
-
-      for (
-        let page = 1;
-        page <= pageCount;
-        page++
-      ) {
-        doc.setPage(page);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(120, 120, 120);
-
-        doc.text(
-          'Generated from ' +
-          pdfText(
-            project.settings.title ||
-            'Guided conversation'
-          ),
-          margin,
-          pageHeight - 8
-        );
-
-        doc.text(
-          'Page ' +
-          page +
-          ' of ' +
-          pageCount,
-          pageWidth - margin,
-          pageHeight - 8,
-          {
-            align: 'right'
-          }
-        );
-      }
-
-      doc.save(
+      link.href = url;
+      link.download =
         pdfSafe(project.settings.title) +
-        '-responses.pdf'
-      );
+        '-responses.pdf';
+
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 2000);
 
       if (button) {
         button.textContent = 'PDF downloaded';
@@ -985,10 +1069,7 @@ body {
       }
 
       alert(
-        'The PDF could not be created. ' +
-        'The PDF library may be blocked in this ' +
-        'Rise code block. Please try again or ' +
-        'contact the course author.'
+        'The PDF could not be created in this browser.'
       );
     }
   }
