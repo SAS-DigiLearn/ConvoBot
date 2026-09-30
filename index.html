@@ -720,7 +720,7 @@ body {
     element.innerHTML = String(value || '');
 
     return (element.textContent || '')
-      .replace(/\s+/g, ' ')
+      .replace(/\\s+/g, ' ')
       .trim();
   }
 
@@ -728,16 +728,16 @@ body {
     return String(value || 'guided-conversation')
       .replace(/[^a-z0-9 _-]/gi, '')
       .trim()
-      .replace(/\s+/g, '-')
+      .replace(/\\s+/g, '-')
       .toLowerCase() || 'guided-conversation';
   }
 
   function pdfEscape(value) {
     return String(value || '')
-      .replace(/\\/g, '\\\\')
-      .replace(/\(/g, '\\(')
-      .replace(/\)/g, '\\)')
-      .replace(/[^\x20-\x7E]/g, char => {
+      .replace(/\\\\/g, '\\\\\\\\')
+      .replace(/\\(/g, '\\\\(')
+      .replace(/\\)/g, '\\\\)')
+      .replace(/[^\\x20-\\x7E]/g, char => {
         const replacements = {
           '’': "'",
           '‘': "'",
@@ -755,7 +755,7 @@ body {
 
   function wrapPdfText(value, maxChars) {
     const text = pdfText(value);
-    const words = text.split(/\s+/);
+    const words = text.split(/\\s+/);
     const lines = [];
     let line = '';
 
@@ -796,7 +796,7 @@ body {
 
     function finishPage() {
       commands.push('ET');
-      pages.push(commands.join('\n'));
+      pages.push(commands.join('\\n'));
     }
 
     function ensureSpace(height) {
@@ -944,9 +944,9 @@ body {
       objects[contentObject] =
         '<< /Length ' +
         pageContent.length +
-        ' >>\nstream\n' +
+        ' >>\\nstream\\n' +
         pageContent +
-        '\nendstream';
+        '\\nendstream';
     });
 
     objects[2] =
@@ -958,7 +958,7 @@ body {
       pageObjectNumbers.length +
       ' >>';
 
-    let pdf = '%PDF-1.4\n';
+    let pdf = '%PDF-1.4\\n';
     const offsets = [0];
 
     for (let i = 1; i < objects.length; i++) {
@@ -970,35 +970,35 @@ body {
 
       pdf +=
         i +
-        ' 0 obj\n' +
+        ' 0 obj\\n' +
         objects[i] +
-        '\nendobj\n';
+        '\\nendobj\\n';
     }
 
     const xrefOffset = pdf.length;
 
     pdf +=
-      'xref\n0 ' +
+      'xref\\n0 ' +
       objects.length +
-      '\n';
+      '\\n';
 
-    pdf += '0000000000 65535 f \n';
+    pdf += '0000000000 65535 f \\n';
 
     for (let i = 1; i < objects.length; i++) {
       const offset = offsets[i] || 0;
 
       pdf +=
         String(offset).padStart(10, '0') +
-        ' 00000 n \n';
+        ' 00000 n \\n';
     }
 
     pdf +=
-      'trailer\n<< /Size ' +
+      'trailer\\n<< /Size ' +
       objects.length +
-      ' /Root 1 0 R >>\n' +
-      'startxref\n' +
+      ' /Root 1 0 R >>\\n' +
+      'startxref\\n' +
       xrefOffset +
-      '\n%%EOF';
+      '\\n%%EOF';
 
     return new Blob(
       [pdf],
