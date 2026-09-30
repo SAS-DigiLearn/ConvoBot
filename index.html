@@ -27,7 +27,7 @@ hr{border:0;border-top:1px solid #eaecf0;margin:16px 0}
 .response{border:1px solid var(--line);border-radius:9px;padding:10px;margin:10px 0;background:#fafafa}
 .action{border-left:3px solid #98a2b3;padding:8px 8px 8px 10px;margin:8px 0;background:#fff}
 .action-head{display:flex;gap:8px;align-items:center}.action-head strong{flex:1}
-.preview{background:#f8f9fa;border:1px solid var(--line);border-radius:10px;padding:12px;min-height:580px}
+.preview{background:#f8f9fa;border:1px solid var(--line);border-radius:10px;padding:12px;min-height:680px;transition:min-height .25s ease}
 .preview-title{font-weight:700;font-size:18px;margin-bottom:10px}
 .progress{height:8px;background:#e9ecef;border-radius:20px;overflow:hidden;margin:8px 0 14px}.progress>div{height:100%;background:var(--brand);width:0}
 .sectionhead{padding:9px;border-radius:7px;color:#fff;font-weight:700;margin-bottom:10px;background:var(--brand)}
@@ -37,6 +37,10 @@ hr{border:0;border-top:1px solid #eaecf0;margin:16px 0}
 .typing-dot:nth-child(2){animation-delay:.15s}
 .typing-dot:nth-child(3){animation-delay:.3s}
 @keyframes typingBounce{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-4px);opacity:1}}
+.preview.transitioning>*{animation:previewQuestionIn .28s ease both}
+@keyframes previewQuestionIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.preview.transitioning>*{animation:none}}
+
 
 .preview-buttons{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.preview-buttons button,.linkbtn{border:0;border-radius:6px;padding:8px 11px;background:var(--brand);color:#fff;text-decoration:none;display:inline-block}
 .notice{padding:9px;background:#fffaeb;border:1px solid #fedf89;border-radius:7px;font-size:13px;margin:8px 0}
@@ -282,6 +286,14 @@ function previewTyping(){
  return new Promise(resolve=>setTimeout(()=>{document.getElementById(id)?.remove();resolve()},650));
 }
 
+function transitionPreview(){
+ renderPreview();
+ const p=$('#preview');
+ p.classList.remove('transitioning');
+ void p.offsetWidth;
+ p.classList.add('transitioning');
+ setTimeout(()=>p.classList.remove('transitioning'),320);
+}
 function renderPreview(){
  const p=$('#preview'),s=project.settings;p.innerHTML='';document.documentElement.style.setProperty('--brand',s.primaryColour||'#b91e71');
  if(previewIndex===-1){
@@ -301,7 +313,7 @@ function startPreview(){
  if(project.settings.collectDetails){let ok=true;project.details.forEach((d,i)=>{const el=document.querySelector(`[data-detail="${i}"]`);previewDetails[d.label]=el?.value||'';if(d.required&&!el?.value.trim()){el.style.borderColor='red';ok=false}});if(!ok)return}
  previewIndex=0;renderPreview()
 }
-function submitPreviewText(req){const t=$('#previewText').value.trim();if(req&&!t)return alert('Please enter a response.');if(project.settings.recordResponses)previewAnswers.push({question:project.questions[previewIndex].text,answer:t});previewIndex++;renderPreview()}
+function submitPreviewText(req){const t=$('#previewText').value.trim();if(req&&!t)return alert('Please enter a response.');if(project.settings.recordResponses)previewAnswers.push({question:project.questions[previewIndex].text,answer:t});previewIndex++;transitionPreview()}
 async function choosePreview(ri){
  const q=project.questions[previewIndex],r=q.responses[ri];
  $('#preview').querySelectorAll('.preview-buttons button').forEach(button=>button.disabled=true);
@@ -315,11 +327,11 @@ async function runPreviewActions(actions,pos){
  if(a.type==='message'){await previewTyping();p.insertAdjacentHTML('beforeend',`<div class="msg bot">${a.text||''}</div>`);return runPreviewActions(actions,pos+1)}
  if(a.type==='link'){p.insertAdjacentHTML('beforeend',`<p><a class="linkbtn" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.label||'Open link')}</a></p>`);return runPreviewActions(actions,pos+1)}
  if(a.type==='text'){p.insertAdjacentHTML('beforeend',`<label>${esc(a.prompt||'Type here...')}</label><textarea id="actionText"></textarea><div class="preview-buttons"><button id="actionContinue">Continue</button></div>`);$('#actionContinue').onclick=()=>{const v=$('#actionText').value.trim();if(a.required&&!v)return alert('Please enter a response.');if(project.settings.recordResponses)previewAnswers.push({question:a.prompt,answer:v});runPreviewActions(actions,pos+1)};return}
- if(a.type==='jump'){const j=project.questions.findIndex(q=>q.id===a.target);previewIndex=j>=0?j:previewIndex+1;return renderPreview()}
- if(a.type==='end'){previewIndex=project.questions.length;return renderPreview()}
+ if(a.type==='jump'){const j=project.questions.findIndex(q=>q.id===a.target);previewIndex=j>=0?j:previewIndex+1;transitionPreview();return}
+ if(a.type==='end'){previewIndex=project.questions.length;transitionPreview();return}
  if(a.type==='continue'){
    p.insertAdjacentHTML('beforeend',`<div class="preview-buttons"><button id="previewNextAction">Continue</button></div>`);
-   $('#previewNextAction').onclick=()=>{previewIndex++;renderPreview()};
+   $('#previewNextAction').onclick=()=>{previewIndex++;transitionPreview()};
    return;
  }
 }
@@ -344,10 +356,34 @@ body {
 
 .guided-conversation-app {
   max-width: 750px;
+  min-height: 680px;
   margin: 0 auto;
   background: #ffffff;
   padding: 16px;
   border-radius: 10px;
+  overflow-anchor: none;
+}
+
+.guided-conversation-app.guided-transitioning > * {
+  animation: guidedQuestionIn 0.28s ease both;
+}
+
+@keyframes guidedQuestionIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guided-conversation-app.guided-transitioning > * {
+    animation: none;
+  }
 }
 
 .guided-conversation-app button,
@@ -489,6 +525,18 @@ body {
     "'": '&#039;'
   }[character]));
 
+  function transitionToQuestion() {
+    render();
+
+    app.classList.remove('guided-transitioning');
+    void app.offsetWidth;
+    app.classList.add('guided-transitioning');
+
+    window.setTimeout(() => {
+      app.classList.remove('guided-transitioning');
+    }, 320);
+  }
+
   function render() {
     const settings = project.settings;
     app.innerHTML = '';
@@ -613,7 +661,7 @@ body {
     }
 
     idx = 0;
-    render();
+    transitionToQuestion();
   }
 
   function textNext(required) {
@@ -632,7 +680,7 @@ body {
     }
 
     idx++;
-    render();
+    transitionToQuestion();
   }
 
   async function choose(responseIndex) {
@@ -728,13 +776,13 @@ body {
       );
 
       idx = targetIndex >= 0 ? targetIndex : idx + 1;
-      render();
+      transitionToQuestion();
       return;
     }
 
     if (action.type === 'end') {
       idx = project.questions.length;
-      render();
+      transitionToQuestion();
       return;
     }
 
@@ -744,7 +792,7 @@ body {
 
       document.getElementById('guidedConversationNext').onclick = () => {
         idx++;
-        render();
+        transitionToQuestion();
       };
 
       return;
